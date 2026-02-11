@@ -1,0 +1,14 @@
+smolagents
+openai
+anthropic
+structlog
+langfuse
+rich
+pyautogui
+playwright
+pillow
+python-dotenv
+schedule
+mcp
+duckduckgo-search
+pypdf
