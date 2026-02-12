@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>ARKA Bridge</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      width: 280px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      background: #0f0f14;
+      color: #e0e7ff;
+      padding: 16px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .logo {
+      font-size: 18px;
+      font-weight: 700;
+      color: #a78bfa;
+      letter-spacing: 1px;
+    }
+
+    .version {
+      font-size: 11px;
+      color: #6b7280;
+      margin-left: auto;
+    }
+
+    .status-card {
+      background: #1a1a24;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+      border: 1px solid #2a2a3a;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .dot.connected { background: #34d399; box-shadow: 0 0 6px #34d39966; }
+    .dot.disconnected { background: #ef4444; box-shadow: 0 0 6px #ef444466; }
+
+    .status-text {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .status-text.connected { color: #34d399; }
+    .status-text.disconnected { color: #ef4444; }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 12px;
+    }
+
+    .info-label { color: #6b7280; }
+    .info-value { color: #9ca3af; font-family: 'SF Mono', monospace; font-size: 11px; }
+
+    .divider {
+      height: 1px;
+      background: #2a2a3a;
+      margin: 8px 0;
+    }
+
+    .last-cmd {
+      font-size: 11px;
+      color: #6b7280;
+      margin-top: 8px;
+    }
+
+    .last-cmd-value {
+      color: #818cf8;
+      font-family: 'SF Mono', monospace;
+      font-size: 11px;
+    }
+
+    .footer {
+      text-align: center;
+      font-size: 10px;
+      color: #4b5563;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="logo">ARKA</span>
+    <span class="version">v1.0.0</span>
+  </div>
+
+  <div class="status-card">
+    <div class="status-row">
+      <div class="dot" id="statusDot"></div>
+      <span class="status-text" id="statusText">Checking...</span>
+    </div>
+    
+    <div class="divider"></div>
+    
+    <div class="info-row">
+      <span class="info-label">Server</span>
+      <span class="info-value">ws://localhost:7777</span>
+    </div>
+    
+    <div class="info-row">
+      <span class="info-label">Active Tab</span>
+      <span class="info-value" id="activeTab">—</span>
+    </div>
+
+    <div class="last-cmd">
+      Last: <span class="last-cmd-value" id="lastCmd">—</span>
+    </div>
+  </div>
+
+  <div class="footer">Browser Bridge • ARKA V2</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

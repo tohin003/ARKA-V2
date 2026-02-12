@@ -12,3 +12,4 @@ schedule
 mcp
 duckduckgo-search
 pypdf
+websockets

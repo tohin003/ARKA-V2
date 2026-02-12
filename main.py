@@ -52,7 +52,14 @@ def main():
         # Start Heartbeat
         heartbeat.start()
         ui.print_system("Heartbeat active")
+        
+        # Start Browser Bridge (Phase 7)
+        from core.browser_bridge import browser_bridge
+        browser_bridge.start()
+        ui.print_system("Browser Bridge active (ws://localhost:7777)")
+        
         ui.print_system("Ready for input")
+
         
     except Exception as e:
         ui.print_error(f"Failed to initialize: {e}")
@@ -72,6 +79,7 @@ def main():
             # Exit
             if user_input.lower() in ["exit", "quit", "q"]:
                 heartbeat.stop()
+                browser_bridge.stop()
                 
                 # Reflect on session if we did work
                 if session_tasks > 0:

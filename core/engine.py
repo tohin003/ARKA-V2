@@ -28,6 +28,11 @@ class ArkaEngine(CodeAgent):
         from tools.memory_tools import remember_fact
         from tools.mcp_tools import list_mcp_tools, call_mcp_tool
         from tools.goal_tools import set_goal, list_goals, advance_goal, complete_goal
+        from tools.chrome_tools import (
+            chrome_navigate, chrome_click, chrome_type, chrome_scroll,
+            chrome_screenshot, chrome_get_dom, chrome_get_text,
+            chrome_list_tabs, chrome_new_tab, chrome_switch_tab, chrome_continue
+        )
         
         # We start with a basic toolset + God Mode tools
         base_tools = tools or []
@@ -42,7 +47,10 @@ class ArkaEngine(CodeAgent):
             send_whatsapp_message,
             remember_fact,
             list_mcp_tools, call_mcp_tool,
-            set_goal, list_goals, advance_goal, complete_goal
+            set_goal, list_goals, advance_goal, complete_goal,
+            chrome_navigate, chrome_click, chrome_type, chrome_scroll,
+            chrome_screenshot, chrome_get_dom, chrome_get_text,
+            chrome_list_tabs, chrome_new_tab, chrome_switch_tab, chrome_continue
         ]
         agent_tools = base_tools + god_mode_tools
         
