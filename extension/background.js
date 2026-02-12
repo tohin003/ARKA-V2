@@ -5,7 +5,10 @@
  * and routes commands to content scripts or Chrome APIs.
  */
 
-const ARKA_WS_URL = "ws://localhost:7777";
+const WS_CANDIDATES = [
+    "ws://127.0.0.1:7777",
+    "ws://localhost:7777"
+];
 const AUTH_PATTERNS = [
     /login/i, /signin/i, /sign-in/i, /auth/i, /sso/i, /oauth/i,
     /accounts\.google/i, /account\.live/i, /github\.com\/login/i,
@@ -14,60 +17,84 @@ const AUTH_PATTERNS = [
 const AUTH_TITLE_PATTERNS = [
     /sign in/i, /log in/i, /authentication/i, /verify/i
 ];
+const KEEPALIVE_ALARM = "arka_keepalive";
+const KEEPALIVE_INTERVAL_MIN = 1;
 
 let ws = null;
 let connected = false;
 let reconnectTimer = null;
+let wsIndex = 0;
+let lastError = "";
 
 // ─── WebSocket Connection ────────────────────────────────────────────
 
 function connect() {
-    if (ws && ws.readyState === WebSocket.OPEN) return;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
     try {
-        ws = new WebSocket(ARKA_WS_URL);
+        const url = WS_CANDIDATES[wsIndex % WS_CANDIDATES.length];
+        const socket = new WebSocket(url);
+        ws = socket;
+        chrome.storage.local.set({ wsUrl: url });
 
-        ws.onopen = () => {
+        socket.onopen = () => {
+            if (socket !== ws) return;
             connected = true;
             clearReconnectTimer();
             updateBadge("ON", "#34d399");
             console.log("[ARKA] Connected to agent");
+            lastError = "";
+            chrome.storage.local.set({ lastError: "" });
 
             // Send handshake
-            ws.send(JSON.stringify({
-                type: "handshake",
-                agent: "arka-chrome-extension",
-                version: "1.0.0"
-            }));
-        };
-
-        ws.onmessage = async (event) => {
-            try {
-                const msg = JSON.parse(event.data);
-                const result = await handleCommand(msg);
-                ws.send(JSON.stringify({ id: msg.id, ...result }));
-            } catch (err) {
-                ws.send(JSON.stringify({
-                    id: null,
-                    status: "error",
-                    error: err.message
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: "handshake",
+                    agent: "arka-chrome-extension",
+                    version: "1.0.0"
                 }));
             }
         };
 
-        ws.onclose = () => {
+        socket.onmessage = async (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                chrome.storage.local.set({ lastCommand: msg.action || msg.type || "unknown" });
+                const result = await handleCommand(msg);
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ id: msg.id, ...result }));
+                }
+            } catch (err) {
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        id: null,
+                        status: "error",
+                        error: err.message
+                    }));
+                }
+            }
+        };
+
+        socket.onclose = () => {
+            if (socket !== ws) return;
             connected = false;
             updateBadge("OFF", "#ef4444");
             console.log("[ARKA] Disconnected. Reconnecting in 3s...");
             scheduleReconnect();
         };
 
-        ws.onerror = (err) => {
+        socket.onerror = (err) => {
+            if (socket !== ws) return;
+            const msg = err && err.message ? err.message : "WebSocket error";
+            lastError = msg;
+            chrome.storage.local.set({ lastError: msg });
             console.error("[ARKA] WebSocket error:", err);
             connected = false;
             updateBadge("OFF", "#ef4444");
         };
     } catch (e) {
+        lastError = e && e.message ? e.message : "Connection failed";
+        chrome.storage.local.set({ lastError });
         console.error("[ARKA] Connection failed:", e);
         scheduleReconnect();
     }
@@ -75,7 +102,35 @@ function connect() {
 
 function scheduleReconnect() {
     clearReconnectTimer();
+    wsIndex = (wsIndex + 1) % WS_CANDIDATES.length;
     reconnectTimer = setTimeout(connect, 3000);
+}
+
+function initKeepAlive() {
+    if (!chrome.alarms || !chrome.alarms.create) {
+        console.warn("[ARKA] chrome.alarms not available in this browser. Keepalive disabled.");
+        return;
+    }
+    try {
+        chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: KEEPALIVE_INTERVAL_MIN });
+    } catch (e) {
+        console.warn("[ARKA] Failed to create keepalive alarm:", e);
+    }
+}
+
+if (chrome.alarms && chrome.alarms.onAlarm) {
+    chrome.alarms.onAlarm.addListener((alarm) => {
+        if (alarm.name !== KEEPALIVE_ALARM) return;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            try {
+                ws.send(JSON.stringify({ type: "ping" }));
+            } catch (e) {
+                // Ignore ping errors
+            }
+        } else {
+            connect();
+        }
+    });
 }
 
 function clearReconnectTimer() {
@@ -100,6 +155,14 @@ async function handleCommand(msg) {
             return await cmdNavigate(params);
         case "click":
             return await cmdInContent("click", params);
+        case "click_at":
+            return await cmdInContent("click_at", params);
+        case "focus":
+            return await cmdInContent("focus", params);
+        case "wait_for_selector":
+            return await cmdInContent("wait_for_selector", params);
+        case "press_key":
+            return await cmdInContent("press_key", params);
         case "type":
             return await cmdInContent("type", params);
         case "scroll":
@@ -313,6 +376,7 @@ function waitForTabLoad(tabId, timeout = 15000) {
 
 // ─── Auto-Connect ────────────────────────────────────────────────────
 connect();
+initKeepAlive();
 
 // Reconnect when service worker wakes up
 chrome.runtime.onStartup.addListener(connect);

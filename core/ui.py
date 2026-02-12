@@ -123,6 +123,11 @@ class ArkaUI:
         display = result[:400] + "…" if len(result) > 400 else result
         self.console.print(f"  [arka.dim]  ↳ {display}[/]")
 
+    def print_step(self, step_number: int, summary: str, context: str | None = None):
+        """Show a concise step summary (CLI-style)."""
+        suffix = f" [{context}]" if context else ""
+        self.console.print(f"  [arka.dim]• Step {step_number}: {summary}{suffix}[/]")
+
     def print_success(self, message: str):
         """Show final answer in a clean panel."""
         self.console.print()
@@ -167,6 +172,11 @@ class ArkaUI:
     def print_system(self, message: str):
         """Print a system-level message."""
         self.console.print(f"  [arka.muted]│ {message}[/]")
+
+    def print_context(self, message: str):
+        """Print context usage (compact, persistent indicator)."""
+        if message:
+            self.console.print(f"  [arka.dim]{message}[/]")
 
     def print_goodbye(self):
         """Print exit message."""

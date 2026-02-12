@@ -19,6 +19,7 @@ from core.skills import skill_registry
 from core.scheduler import heartbeat
 from core.reflection import reflection_engine
 from memory.db import memory_client
+from core.session_context import session_context
 import structlog
 
 # ─── Logging (File-only to keep UI clean) ─────────────────────────────
@@ -56,7 +57,11 @@ def main():
         # Start Browser Bridge (Phase 7)
         from core.browser_bridge import browser_bridge
         browser_bridge.start()
-        ui.print_system("Browser Bridge active (ws://localhost:7777)")
+        bridge_status = browser_bridge.status()
+        if bridge_status.get("last_error"):
+            ui.print_warning(f"Browser Bridge failed: {bridge_status['last_error']}")
+        else:
+            ui.print_system(f"Browser Bridge active (ws://{bridge_status['host']}:{bridge_status['port']})")
         
         ui.print_system("Ready for input")
 
@@ -71,6 +76,10 @@ def main():
     # 4. Main Loop
     while True:
         try:
+            # Persistent context usage indicator
+            if session_context.total_input_tokens + session_context.total_output_tokens > 0:
+                ui.print_context(session_context.context_usage_str())
+
             user_input = ui.get_input()
 
             if not user_input.strip():

@@ -4,6 +4,7 @@ import pyautogui
 import subprocess
 import structlog
 import time
+from core.session_context import session_context
 
 logger = structlog.get_logger()
 
@@ -79,6 +80,9 @@ def open_app(app_name: str, url: str = None) -> str:
             if verify_simple.returncode != 0:
                 return f"Error: Command sent, but '{app_name}' process not found running."
             
+        session_context.update_app(app_name)
+        if url:
+            session_context.update_browser(url=url, title=None)
         return f"Opened {app_name} " + (f"with {url}" if url else "")
     except subprocess.CalledProcessError as e:
         # Fallback: If app not found and we have a URL, just open URL (default browser)

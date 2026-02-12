@@ -2,8 +2,8 @@
   <img src="https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white" />
   <img src="https://img.shields.io/badge/macOS-Only-black?logo=apple&logoColor=white" />
   <img src="https://img.shields.io/badge/License-MIT-green" />
-  <img src="https://img.shields.io/badge/Tools-23-purple" />
-  <img src="https://img.shields.io/badge/Phase-6%20Complete-gold" />
+  <img src="https://img.shields.io/badge/Tools-40%2B-purple" />
+  <img src="https://img.shields.io/badge/Phase-7%20Complete-gold" />
 </p>
 
 <h1 align="center">
@@ -46,25 +46,23 @@ ARKA is a hybrid of three paradigms:
 | Origin | What ARKA Inherits | Implementation |
 |:---|:---|:---|
 | **[OpenClaw](https://github.com/AiOClaw)** | Persistent memory, proactive heartbeat, pattern learning, self-reflection | `user_profile.md`, `learnings.md`, `HeartbeatScheduler`, `PatternLearner`, `ReflectionEngine` |
-| **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | OS-level tool execution, safety guards, structured code generation | `CodeAgent`, `MistakeGuard`, 23 tools, `pyautogui` + AppleScript |
+| **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | OS-level tool execution, safety guards, structured code generation | `CodeAgent`, `MistakeGuard`, 40+ tools, `pyautogui` + AppleScript |
 | **[Antigravity](https://deepmind.google)** | Context sensing, adaptive communication, goal persistence | `ContextSensor`, `ToneAdapter`, `GoalManager` |
 
 ---
 
 ## Features
 
-### 🛠️ 23 Built-in Tools
+### 🛠️ 40+ Built-in Tools (Phase 7)
 
 <table>
 <tr>
 <td width="50%">
 
 **System Control**
-- `system_click` — Vision-guided UI clicking
-- `system_type` — Type into any field  
-- `system_hotkey` — Keyboard shortcuts
-- `system_press` — Single key presses
-- `open_app` — Launch any application
+- `system_click` — Vision-guided UI clicking (PyAutoGUI)
+- `system_type` — Type into any field
+- `open_app` — Launch apps (or open URLs via an app)
 
 **Hardware**
 - `music_control` — Apple Music (play/pause/next)
@@ -74,7 +72,7 @@ ARKA is a hybrid of three paradigms:
 
 **Communication**
 - `send_whatsapp_message` — Vision-verified messaging
-- `visit_page` — Browse any URL
+- `visit_page` — Headless browsing (Playwright)
 
 </td>
 <td width="50%">
@@ -87,6 +85,12 @@ ARKA is a hybrid of three paradigms:
 
 **Developer**
 - `generate_graph` — Codebase dependency graph
+
+**Browser (Chrome DOM Control — requires extension)**
+- `chrome_navigate` / `chrome_click` / `chrome_type` / `chrome_scroll`
+- `chrome_wait_for_selector` / `chrome_get_text` / `chrome_get_dom` / `chrome_get_elements`
+- `chrome_list_tabs` / `chrome_new_tab` / `chrome_switch_tab`
+- `chrome_status` / `chrome_wait_for_connection` / `chrome_continue`
 
 **Extensibility**
 - `list_mcp_tools` — Discover MCP server tools
@@ -195,6 +199,7 @@ ARKA can see your screen via GPT-5.2 Vision and click precisely:
 | `pyautogui.FAILSAFE` | Move mouse to corner to abort |
 | Token limits | Prevents runaway LLM costs |
 | Vision verification | WhatsApp messages verified before sending |
+| Strict output verification | Downgrades unverified “success” claims unless DOM checks confirm |
 
 ---
 
@@ -208,7 +213,7 @@ ARKA can see your screen via GPT-5.2 Vision and click precisely:
 │              └──────┬───────┘                      │
 │                     │                              │
 │              ┌──────▼───────┐                      │
-│              │  ArkaEngine  │ ← CodeAgent + 23     │
+│              │  ArkaEngine  │ ← CodeAgent + 40+    │
 │              │              │   tools               │
 │              └──────┬───────┘                      │
 │                     │                              │
@@ -278,10 +283,13 @@ ARKA-V2/
 ├── setup.py                   # First-time setup wizard
 ├── requirements.txt           # Python dependencies
 ├── .env                       # API keys (gitignored)
+├── implementation_plan.md     # Planning-mode output (updated by `plan`)
+├── ultimate_plan.md           # Long-form roadmap/notes
 │
 ├── core/                      # Brain
 │   ├── engine.py              # ArkaEngine (CodeAgent + tools)
 │   ├── llm.py                 # ModelRouter (LLM provider)
+│   ├── responses_model.py      # OpenAI Responses API wrapper
 │   ├── ui.py                  # Premium terminal UI
 │   ├── scheduler.py           # Heartbeat daemon
 │   ├── skills.py              # Slash commands (/help, /status)
@@ -293,6 +301,9 @@ ARKA-V2/
 │   ├── context_sensor.py      # Phase 6.4 — Desktop awareness
 │   ├── tone_adapter.py        # Phase 6.5 — Emotion detection
 │   ├── vision_client.py       # GPT Vision integration
+│   ├── session_context.py      # Short-term session state + coreference hints
+│   ├── verification.py         # Post-run verification + success-claim guardrails
+│   ├── browser_bridge.py       # Phase 7 — WebSocket server for Chrome extension
 │   └── hooks.py               # Event hooks
 │
 ├── tools/                     # Hands
@@ -300,6 +311,7 @@ ARKA-V2/
 │   ├── system.py              # Click, type, hotkey, open app
 │   ├── messaging.py           # WhatsApp (vision-verified)
 │   ├── browser.py             # Playwright web browsing
+│   ├── chrome_tools.py         # Phase 7 — Chrome DOM tools via extension bridge
 │   ├── vision.py              # Screen coordinate detection
 │   ├── search.py              # DuckDuckGo search
 │   ├── todo.py                # Task management
@@ -310,6 +322,21 @@ ARKA-V2/
 │   ├── dev.py                 # Developer utilities
 │   ├── git.py                 # Git operations
 │   └── terminal.py            # Shell command execution
+│
+├── extension/                 # Phase 7 — Chrome extension (load unpacked)
+│   ├── manifest.json
+│   ├── background.js
+│   ├── content.js
+│   ├── popup.html
+│   ├── popup.js
+│   └── icons/
+│
+├── claude-code-system-prompts/ # Vendored prompts/tools reference
+│   └── ...
+│
+├── scripts/                   # Helper scripts
+│   ├── setup.py               # Installs common macOS deps (Homebrew)
+│   └── check_models.py         # Lists available OpenAI models
 │
 ├── memory/                    # Long-term storage
 │   ├── db.py                  # SQLite session history
@@ -336,7 +363,7 @@ ARKA-V2/
 ### Prerequisites
 
 - **macOS** (ARKA uses AppleScript, pyautogui, and macOS-specific APIs)
-- **Python 3.10+**
+- **Python 3.10+** (Python 3.12 recommended; some PyAutoGUI dependencies may break on Python 3.13)
 - **OpenAI API key** (GPT-5.2 for reasoning and vision)
 
 ### Installation
@@ -352,6 +379,23 @@ python setup.py
 # 3. Launch ARKA
 python main.py
 ```
+
+### (Optional) Enable Chrome DOM Control (Phase 7)
+
+ARKA supports **precise, DOM-level web automation** in Google Chrome via a local WebSocket bridge + bundled extension (`tools/chrome_tools.py`).
+
+1) Install the extension:
+- Open `chrome://extensions`
+- Enable **Developer mode**
+- Click **Load unpacked** → select `extension/`
+
+2) Run ARKA:
+- `python main.py`
+- You should see: `Browser Bridge active (ws://127.0.0.1:7777)` (host/port configurable)
+
+3) Use it:
+- Ask ARKA to use Chrome, e.g. “Open Chrome and go to github.com”
+- If ARKA pauses for login, log in manually, then tell ARKA “continue” (it will call `chrome_continue`)
 
 ### Manual Setup (Alternative)
 
@@ -376,6 +420,11 @@ EOF
 # Run
 python main.py
 ```
+
+### System Dependencies (Optional, macOS)
+
+- `bluetooth_control` requires `blueutil` (install via Homebrew): `brew install blueutil`
+- There is a helper: `python scripts/setup.py` (checks Homebrew + installs common packages)
 
 ### macOS Permissions
 
@@ -410,6 +459,14 @@ ARKA needs these permissions (System Settings → Privacy & Security):
 ❯ /commit Fixed the login bug       # Git commit
 ```
 
+### Planning Mode
+
+```bash
+❯ plan Add a /status command that also shows branch name
+```
+
+- Planning mode updates `implementation_plan.md` and does **not** execute changes.
+
 ### Goals
 
 ```bash
@@ -443,26 +500,30 @@ ARKA needs these permissions (System Settings → Privacy & Security):
 | Variable | Required | Description |
 |:---|:---|:---|
 | `OPENAI_API_KEY` | ✅ | Primary LLM (GPT-5.2) |
-| `ANTHROPIC_API_KEY` | Optional | Claude models |
-| `GOOGLE_API_KEY` | Optional | Gemini models |
+| `ANTHROPIC_API_KEY` | Optional | Present in setup wizard (not currently used by core runtime) |
+| `GOOGLE_API_KEY` | Optional | Present in setup wizard (not currently used by core runtime) |
 | `LANGFUSE_SECRET_KEY` | Optional | Observability |
 | `LANGFUSE_PUBLIC_KEY` | Optional | Observability |
 | `LANGFUSE_BASE_URL` | Optional | Observability |
+| `ARKA_PLANNER_MODEL` | Optional | Planner model ID (Responses API) |
+| `ARKA_EXECUTOR_MODEL` | Optional | Executor model ID (chat) |
+| `ARKA_VISION_MODEL` | Optional | Vision model ID |
+| `ARKA_ROUTER_MODEL` | Optional | Router model ID (Responses API) |
+| `ARKA_VERIFIER_MODEL` | Optional | Verifier model ID (Responses API) |
+| `ARKA_CONTEXT_WINDOW` | Optional | Context window accounting (default `128000`) |
+| `ARKA_BRIDGE_HOST` | Optional | Browser Bridge host (default `127.0.0.1`) |
+| `ARKA_BRIDGE_PORT` | Optional | Browser Bridge port (default `7777`) |
 
 ### Changing the LLM Model
 
-Edit `core/llm.py` to switch models:
+Prefer `.env` overrides (see `core/llm.py`):
 
-```python
-# Use GPT-4o instead
-self.executor_id = "gpt-4o"
-
-# Or use any OpenAI-compatible API
-self.executor = OpenAIServerModel(
-    model_id="your-model-id",
-    api_key=self.api_key,
-    api_base="https://your-api-endpoint.com/v1",
-)
+```dotenv
+ARKA_EXECUTOR_MODEL="gpt-5.2-chat-latest"
+ARKA_PLANNER_MODEL="gpt-5.2-pro-2025-12-11"
+ARKA_ROUTER_MODEL="gpt-5.1-2025-11-13"
+ARKA_VERIFIER_MODEL="gpt-5.2-pro-2025-12-11"
+ARKA_VISION_MODEL="gpt-4o-2024-11-20"
 ```
 
 ---
@@ -473,8 +534,14 @@ self.executor = OpenAIServerModel(
 # Phase 6 tests (23 checks — AGI capabilities)
 python tests/test_phase6.py
 
+# Phase 7 tests (Chrome extension + bridge)
+python tests/test_phase7.py
+
 # Full integration (22 checks — all subsystems)
 python tests/test_full_integration.py
+
+# Run the full test suite
+python tests/run_all_tests.py
 
 # Individual module tests
 python tests/test_memory.py
@@ -500,6 +567,7 @@ python tests/test_mcp.py
 | **6.3** | ✅ | **Reflection Loop (Self-Improvement)** |
 | **6.4** | ✅ | **Context Sensing (Situational Awareness)** |
 | **6.5** | ✅ | **Adaptive Communication (EQ)** |
+| **7** | ✅ | **Browser Bridge (Chrome extension + DOM automation)** |
 
 ---
 
@@ -513,6 +581,7 @@ python tests/test_mcp.py
 | Terminal UI | [Rich](https://github.com/Textualize/rich) |
 | OS Control | PyAutoGUI + AppleScript |
 | Browser | Playwright (Chromium) |
+| Browser Bridge | `websockets` + Chrome Extension (Manifest V3) |
 | Database | SQLite3 |
 | Tool Protocol | [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) |
 | Observability | [Langfuse](https://langfuse.com/) |

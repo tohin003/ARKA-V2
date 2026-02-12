@@ -9,6 +9,7 @@
         "scripting",
         "storage",
         "debugger",
+        "alarms",
         "tabCapture"
     ],
     "host_permissions": [

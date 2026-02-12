@@ -20,6 +20,26 @@
                 case "click":
                     sendResponse(handleClick(params));
                     break;
+                case "click_at":
+                    sendResponse(handleClickAt(params));
+                    break;
+                case "focus":
+                    sendResponse(handleFocus(params));
+                    break;
+                case "wait_for_selector": {
+                    const result = handleWaitForSelector(params);
+                    if (result && typeof result.then === "function") {
+                        result.then(sendResponse).catch(err => {
+                            sendResponse({ status: "error", error: err.message });
+                        });
+                        return true;
+                    }
+                    sendResponse(result);
+                    break;
+                }
+                case "press_key":
+                    sendResponse(handlePressKey(params));
+                    break;
                 case "type":
                     sendResponse(handleType(params));
                     break;
@@ -108,12 +128,20 @@
         el.focus();
 
         if (clear) {
-            el.value = "";
+            if (el.isContentEditable) {
+                el.innerText = "";
+            } else {
+                setNativeValue(el, "");
+            }
             el.dispatchEvent(new Event("input", { bubbles: true }));
         }
 
         // Simulate realistic typing
-        el.value = text;
+        if (el.isContentEditable) {
+            document.execCommand("insertText", false, text);
+        } else {
+            setNativeValue(el, text);
+        }
         el.dispatchEvent(new Event("input", { bubbles: true }));
         el.dispatchEvent(new Event("change", { bubbles: true }));
 
@@ -127,6 +155,163 @@
         };
     }
 
+    // ─── Press Key ───────────────────────────────────────────────────
+
+    function handlePressKey(params) {
+        const { key = "Enter", code, selector } = params;
+        let el;
+        if (selector) {
+            el = document.querySelector(selector);
+            if (!el) {
+                return { status: "error", error: `Element not found: ${selector}` };
+            }
+            el.focus();
+        } else {
+            el = document.activeElement || document.body;
+        }
+
+        const keyCode = key === "Enter" ? 13 : key === "Tab" ? 9 : key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0;
+        const eventOpts = {
+            key,
+            code: code || (key === "Enter" ? "Enter" : key === "Tab" ? "Tab" : undefined),
+            keyCode,
+            which: keyCode,
+            bubbles: true,
+            cancelable: true
+        };
+
+        el.dispatchEvent(new KeyboardEvent("keydown", eventOpts));
+        el.dispatchEvent(new KeyboardEvent("keypress", eventOpts));
+        el.dispatchEvent(new KeyboardEvent("keyup", eventOpts));
+
+        return {
+            status: "ok",
+            pressed: key,
+            target: describeElement(el),
+            hasPasswordField: !!document.querySelector('input[type="password"]:not([hidden])')
+        };
+    }
+
+    // ─── Wait For Selector ───────────────────────────────────────────
+
+    function handleWaitForSelector(params) {
+        const { selector, timeout_ms = 5000 } = params;
+        if (!selector) return { status: "error", error: "selector required" };
+
+        const existing = document.querySelector(selector);
+        if (existing) {
+            return {
+                status: "ok",
+                found: true,
+                element: describeElement(existing)
+            };
+        }
+
+        return new Promise((resolve) => {
+            const observer = new MutationObserver(() => {
+                const el = document.querySelector(selector);
+                if (el) {
+                    observer.disconnect();
+                    clearTimeout(timer);
+                    resolve({ status: "ok", found: true, element: describeElement(el) });
+                }
+            });
+
+            observer.observe(document.documentElement, { childList: true, subtree: true });
+
+            const timer = setTimeout(() => {
+                observer.disconnect();
+                resolve({ status: "error", error: `Timeout waiting for selector: ${selector}` });
+            }, timeout_ms);
+        });
+    }
+
+    // ─── Focus ───────────────────────────────────────────────────────
+
+    function handleFocus(params) {
+        const { selector, text, index = 0 } = params;
+        let el;
+
+        if (text) {
+            const candidates = findByText(text);
+            if (candidates.length === 0) {
+                return { status: "error", error: `No element found with text: "${text}"` };
+            }
+            el = candidates[Math.min(index, candidates.length - 1)];
+        } else if (selector) {
+            const elements = document.querySelectorAll(selector);
+            if (elements.length === 0) {
+                return { status: "error", error: `No element matches selector: ${selector}` };
+            }
+            el = elements[Math.min(index, elements.length - 1)];
+        } else {
+            return { status: "error", error: "Provide 'selector' or 'text'" };
+        }
+
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.focus();
+
+        return {
+            status: "ok",
+            focused: describeElement(el),
+            hasPasswordField: !!document.querySelector('input[type="password"]:not([hidden])')
+        };
+    }
+
+    // ─── Click At ────────────────────────────────────────────────────
+
+    function handleClickAt(params) {
+        const { x, y, button = "left", double = false, page = false } = params;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            return { status: "error", error: "x and y must be numbers" };
+        }
+
+        let clientX = x;
+        let clientY = y;
+
+        if (page) {
+            // Convert page coords to viewport coords
+            const targetScrollTop = Math.max(y - window.innerHeight / 2, 0);
+            const targetScrollLeft = Math.max(x - window.innerWidth / 2, 0);
+            window.scrollTo({ top: targetScrollTop, left: targetScrollLeft, behavior: "auto" });
+
+            clientX = x - window.scrollX;
+            clientY = y - window.scrollY;
+        }
+
+        const el = document.elementFromPoint(clientX, clientY);
+        if (!el) {
+            return { status: "error", error: "No element found at coordinates" };
+        }
+
+        const buttonMap = { left: 0, middle: 1, right: 2 };
+        const btn = buttonMap[button] ?? 0;
+
+        const eventOpts = {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+            button: btn
+        };
+
+        el.dispatchEvent(new MouseEvent("mousemove", eventOpts));
+        el.dispatchEvent(new MouseEvent("mousedown", eventOpts));
+        el.dispatchEvent(new MouseEvent("mouseup", eventOpts));
+        el.dispatchEvent(new MouseEvent("click", eventOpts));
+        if (double) {
+            el.dispatchEvent(new MouseEvent("dblclick", eventOpts));
+        }
+
+        flashElement(el);
+
+        return {
+            status: "ok",
+            clicked: describeElement(el),
+            at: { x: clientX, y: clientY },
+            hasPasswordField: !!document.querySelector('input[type="password"]:not([hidden])')
+        };
+    }
     // ─── Scroll ──────────────────────────────────────────────────────
 
     function handleScroll(params) {
@@ -338,6 +523,7 @@
     }
 
     function describeElement(el) {
+        const rect = el.getBoundingClientRect();
         return {
             tag: el.tagName.toLowerCase(),
             id: el.id || undefined,
@@ -346,6 +532,16 @@
             href: el.href || undefined,
             type: el.type || undefined,
             name: el.name || undefined,
+            rect: {
+                x: Math.round(rect.x),
+                y: Math.round(rect.y),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+                centerX: Math.round(rect.x + rect.width / 2),
+                centerY: Math.round(rect.y + rect.height / 2),
+                pageX: Math.round(rect.x + window.scrollX),
+                pageY: Math.round(rect.y + window.scrollY)
+            }
         };
     }
 
@@ -358,6 +554,17 @@
             el.style.outline = orig;
             el.style.backgroundColor = origBg;
         }, duration);
+    }
+
+    function setNativeValue(el, value) {
+        const tag = el.tagName.toLowerCase();
+        const proto = tag === "textarea" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+        const desc = Object.getOwnPropertyDescriptor(proto, "value");
+        if (desc && desc.set) {
+            desc.set.call(el, value);
+        } else {
+            el.value = value;
+        }
     }
 
 })();

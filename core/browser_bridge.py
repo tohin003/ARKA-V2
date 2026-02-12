@@ -11,11 +11,13 @@ import threading
 import time
 import uuid
 import structlog
+import os
 from typing import Optional, Any
 
 logger = structlog.get_logger()
 
-DEFAULT_PORT = 7777
+DEFAULT_HOST = os.getenv("ARKA_BRIDGE_HOST", "127.0.0.1")
+DEFAULT_PORT = int(os.getenv("ARKA_BRIDGE_PORT", "7777"))
 COMMAND_TIMEOUT = 30  # seconds
 
 
@@ -27,7 +29,8 @@ class BrowserBridge:
     and receives results synchronously via send_command().
     """
 
-    def __init__(self, port: int = DEFAULT_PORT):
+    def __init__(self, port: int = DEFAULT_PORT, host: str = DEFAULT_HOST):
+        self.host = host
         self.port = port
         self.connected = False
         self.extension_ws = None
@@ -37,6 +40,8 @@ class BrowserBridge:
         self._pending: dict[str, asyncio.Future] = {}
         self._auth_waiting = False
         self._auth_url = None
+        self._started_event = threading.Event()
+        self._start_error: Optional[str] = None
 
     # ─── Lifecycle ────────────────────────────────────────────────────
 
@@ -44,7 +49,8 @@ class BrowserBridge:
         """Start WebSocket server in background thread."""
         if self._thread and self._thread.is_alive():
             return
-
+        self._started_event.clear()
+        self._start_error = None
         self._thread = threading.Thread(target=self._run_server, daemon=True)
         self._thread.start()
         
@@ -53,8 +59,12 @@ class BrowserBridge:
             if self._loop:
                 break
             time.sleep(0.1)
-        
-        logger.info("browser_bridge_started", port=self.port)
+        # Wait for bind success or error
+        self._started_event.wait(timeout=3.0)
+        if self._start_error:
+            logger.error("browser_bridge_start_failed", error=self._start_error)
+        else:
+            logger.info("browser_bridge_started", host=self.host, port=self.port)
 
     def stop(self):
         """Stop the WebSocket server."""
@@ -82,13 +92,16 @@ class BrowserBridge:
             import websockets
             self._server = await websockets.serve(
                 self._handle_connection,
-                "localhost",
+                self.host,
                 self.port,
                 ping_interval=20,
                 ping_timeout=20,
             )
-            logger.info("ws_server_listening", port=self.port)
+            logger.info("ws_server_listening", host=self.host, port=self.port)
+            self._started_event.set()
         except Exception as e:
+            self._start_error = str(e)
+            self._started_event.set()
             logger.error("ws_server_start_failed", error=str(e))
             raise
 
@@ -156,7 +169,10 @@ class BrowserBridge:
             }
 
         if not self.connected or not self.extension_ws:
-            return {"status": "error", "error": "Chrome extension not connected. Load the extension and refresh."}
+            return {
+                "status": "error",
+                "error": "Chrome extension not connected. Ensure Chrome is running and the ARKA extension is installed/enabled. This bridge does not control other browsers (e.g. Comet)."
+            }
 
         msg_id = str(uuid.uuid4())[:8]
         message = json.dumps({
@@ -214,9 +230,11 @@ class BrowserBridge:
     def status(self) -> dict:
         return {
             "connected": self.is_connected,
+            "host": self.host,
             "port": self.port,
             "auth_waiting": self._auth_waiting,
             "auth_url": self._auth_url,
+            "last_error": self._start_error,
         }
 
 

@@ -8,6 +8,7 @@ via the Browser Bridge WebSocket extension.
 from smolagents import tool
 import structlog
 import json
+from core.session_context import session_context
 
 logger = structlog.get_logger()
 
@@ -18,7 +19,13 @@ def _bridge():
     return browser_bridge
 
 
-def _format_result(result: dict) -> str:
+def _truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "…"
+
+
+def _format_result(result: dict, max_string: int = 400, max_json: int = 2000) -> str:
     """Format a bridge result for the agent."""
     if not result:
         return "No response from extension"
@@ -36,10 +43,12 @@ def _format_result(result: dict) -> str:
     for key, val in result.items():
         if key in ("status", "id"):
             continue
-        if isinstance(val, str) and len(val) > 200:
-            val = val[:200] + "…"
+        if isinstance(val, str) and len(val) > max_string:
+            val = val[:max_string] + "…"
         elif isinstance(val, (dict, list)):
-            val = json.dumps(val, indent=2)[:500]
+            dumped = json.dumps(val, indent=2)
+            dumped = _truncate(dumped, max_json)
+            val = dumped
         parts.append(f"{key}: {val}")
     
     return "\n".join(parts) if parts else f"✅ {status}"
@@ -59,7 +68,39 @@ def chrome_navigate(url: str) -> str:
         url: The URL to navigate to (e.g., "google.com" or "https://github.com").
     """
     result = _bridge().send_command("navigate", {"url": url})
+    if result.get("status") == "ok":
+        session_context.update_browser(url=result.get("url"), title=result.get("title"))
     return _format_result(result)
+
+
+@tool
+def chrome_status() -> str:
+    """
+    Return the Chrome bridge connection status.
+    Useful before attempting DOM-based actions.
+    """
+    status = _bridge().status()
+    return json.dumps(status, indent=2)
+
+
+@tool
+def chrome_wait_for_connection(timeout_s: int = 10, poll_interval_s: float = 0.5) -> str:
+    """
+    Wait for the Chrome bridge to become connected.
+    Useful right after launching Chrome.
+    
+    Args:
+        timeout_s: Max seconds to wait.
+        poll_interval_s: Seconds between checks.
+    """
+    import time
+    start = time.time()
+    while time.time() - start < timeout_s:
+        if _bridge().is_connected:
+            return "✅ Chrome bridge connected."
+        time.sleep(poll_interval_s)
+    status = _bridge().status()
+    return f"❌ Chrome bridge not connected after {timeout_s}s. Status: {json.dumps(status)}"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -84,6 +125,73 @@ def chrome_click(selector: str, text: str = None, index: int = 0) -> str:
     if selector:
         params["selector"] = selector
     result = _bridge().send_command("click", params)
+    return _format_result(result)
+
+
+@tool
+def chrome_click_at(x: int, y: int, button: str = "left", double: bool = False, page: bool = False) -> str:
+    """
+    Click at a precise coordinate in the active Chrome tab.
+    Coordinates are viewport-based by default. Set page=True to use page coordinates.
+    
+    Args:
+        x: X coordinate (int).
+        y: Y coordinate (int).
+        button: "left", "right", or "middle".
+        double: If True, double-click.
+        page: If True, treat x/y as page coords (will scroll into view).
+    """
+    params = {"x": x, "y": y, "button": button, "double": double, "page": page}
+    result = _bridge().send_command("click_at", params)
+    return _format_result(result)
+
+
+@tool
+def chrome_focus(selector: str = None, text: str = None, index: int = 0) -> str:
+    """
+    Focus an element in the active Chrome tab by selector or visible text.
+    
+    Args:
+        selector: CSS selector (e.g., "#email", "input[name='q']").
+        text: Visible text to match if selector is not provided.
+        index: If multiple matches, focus the Nth one (0-indexed).
+    """
+    params = {"index": index}
+    if selector:
+        params["selector"] = selector
+    if text:
+        params["text"] = text
+    result = _bridge().send_command("focus", params)
+    return _format_result(result)
+
+
+@tool
+def chrome_press_key(key: str = "Enter", selector: str = None) -> str:
+    """
+    Press a key in the active Chrome tab (optionally on a target element).
+    
+    Args:
+        key: Key name (e.g., "Enter", "Tab", "Escape", "a").
+        selector: CSS selector to focus before pressing.
+    """
+    params = {"key": key}
+    if selector:
+        params["selector"] = selector
+    result = _bridge().send_command("press_key", params)
+    return _format_result(result)
+
+
+@tool
+def chrome_wait_for_selector(selector: str, timeout_ms: int = 5000) -> str:
+    """
+    Wait until a selector appears in the DOM.
+    
+    Args:
+        selector: CSS selector to wait for.
+        timeout_ms: Max time to wait in milliseconds.
+    """
+    params = {"selector": selector, "timeout_ms": timeout_ms}
+    result = _bridge().send_command("wait_for_selector", params, timeout=max(1, (timeout_ms // 1000) + 2))
     return _format_result(result)
 
 
@@ -152,6 +260,14 @@ def chrome_get_dom(selector: str = None, max_depth: int = 3) -> str:
     if selector:
         params["selector"] = selector
     result = _bridge().send_command("get_dom", params)
+    if result.get("status") == "ok":
+        session_context.update_browser(url=result.get("url"), title=result.get("title"))
+        payload = {
+            "title": result.get("title"),
+            "url": result.get("url"),
+            "dom": result.get("dom"),
+        }
+        return _truncate(json.dumps(payload, indent=2), 12000)
     return _format_result(result)
 
 
@@ -169,6 +285,49 @@ def chrome_get_text(selector: str = None, max_length: int = 5000) -> str:
     if selector:
         params["selector"] = selector
     result = _bridge().send_command("get_text", params)
+    if result.get("status") == "ok":
+        session_context.update_browser(url=result.get("url"), title=result.get("title"))
+        return result.get("text", "")
+    return _format_result(result)
+
+
+@tool
+def chrome_verify_text(text: str, selector: str = None, max_length: int = 5000) -> str:
+    """
+    Verify that visible page text contains the given string.
+    Useful for confirming comments/messages actually appeared.
+    
+    Args:
+        text: Text to verify.
+        selector: Optional CSS selector to scope the search.
+        max_length: Max characters to fetch.
+    """
+    params = {"max_length": max_length}
+    if selector:
+        params["selector"] = selector
+    result = _bridge().send_command("get_text", params)
+    if result.get("status") == "ok":
+        session_context.update_browser(url=result.get("url"), title=result.get("title"))
+        hay = result.get("text", "") or ""
+        if text in hay:
+            return f"✅ Verified text present: {text}"
+        return f"❌ Text not found: {text}"
+    return _format_result(result)
+
+
+@tool
+def chrome_get_elements(selector: str, max_results: int = 20) -> str:
+    """
+    Get a list of elements that match a selector, including bounding boxes.
+    
+    Args:
+        selector: CSS selector to match elements.
+        max_results: Max number of results to return.
+    """
+    params = {"selector": selector, "max_results": max_results}
+    result = _bridge().send_command("get_elements", params)
+    if result.get("status") == "ok":
+        return _truncate(json.dumps(result, indent=2), 12000)
     return _format_result(result)
 
 
@@ -204,6 +363,8 @@ def chrome_new_tab(url: str = None) -> str:
     if url:
         params["url"] = url
     result = _bridge().send_command("new_tab", params)
+    if result.get("status") == "ok":
+        session_context.update_browser(url=url, title=result.get("title"))
     return _format_result(result)
 
 
@@ -217,6 +378,8 @@ def chrome_switch_tab(tab_id: int) -> str:
         tab_id: The numeric tab ID to switch to.
     """
     result = _bridge().send_command("switch_tab", {"tab_id": tab_id})
+    if result.get("status") == "ok":
+        session_context.update_browser(url=result.get("url"), title=result.get("title"))
     return _format_result(result)
 
 
