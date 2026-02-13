@@ -2,6 +2,7 @@ import subprocess
 import os
 import sys
 import time
+import socket
 
 # List of tests to run in order
 TEST_SUITE = [
@@ -12,7 +13,25 @@ TEST_SUITE = [
     ("Phase 3: Planning Mode", "tests/test_planning.py"),
     ("Phase 3: Skills Registry", "tests/test_skills.py"),
     ("Phase 3: Browser Tool", "tests/test_browser.py"),
+    ("Phase 3: Browser Bridge Shutdown", "tests/test_browser_bridge_shutdown.py"),
 ]
+
+ONLINE_TESTS = {
+    "tests/test_hello_world.py",
+    "tests/test_coding_loop.py",
+    "tests/test_god_mode.py",
+    "tests/test_memory.py",
+    "tests/test_planning.py",
+}
+
+NETWORK_TESTS = ONLINE_TESTS | {"tests/test_browser.py"}
+
+def _network_ok(host: str = "api.openai.com") -> bool:
+    try:
+        socket.getaddrinfo(host, 443)
+        return True
+    except Exception:
+        return False
 
 def run_test(name, script_path):
     print(f"\n🔵 RUNNING: {name} ({script_path})")
@@ -56,6 +75,11 @@ def run_test(name, script_path):
 def main():
     print("🚀 STARTING ARKA V2 FULL REGRESSION SUITE")
     print(f"Directory: {os.getcwd()}")
+
+    online_requested = os.environ.get("ARKA_OFFLINE", "0") != "1"
+    network_ok = _network_ok()
+    if online_requested and not network_ok:
+        print("⚠️ Network/DNS unavailable. Network-dependent tests will be skipped.")
     
     results = []
     
@@ -65,6 +89,11 @@ def main():
             results.append((name, "SKIPPING (Not Found)"))
             continue
             
+        if online_requested and not network_ok and script in NETWORK_TESTS:
+            print(f"⚠️ SKIPPING {name}: network unavailable.")
+            results.append((name, "SKIP"))
+            continue
+
         passed, output = run_test(name, script)
         status = "PASS" if passed else "FAIL"
         results.append((name, status))
@@ -77,9 +106,12 @@ def main():
     
     all_passed = True
     for name, status in results:
-        icon = "✅" if status == "PASS" else "❌"
+        if status == "SKIP":
+            icon = "⚪"
+        else:
+            icon = "✅" if status == "PASS" else "❌"
         print(f"{icon} {name}: {status}")
-        if status != "PASS":
+        if status == "FAIL":
             all_passed = False
             
     if all_passed:

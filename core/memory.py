@@ -1,5 +1,6 @@
 import os
 import datetime
+from memory.store import memory_store
 
 class MemoryManager:
     def __init__(self, profile_path="memory/user_profile.md"):
@@ -26,5 +27,12 @@ class MemoryManager:
         # For robustness, we just append to end for now
         with open(self.profile_path, "a") as f:
             f.write(entry)
+        # Also store in unified memory store (non-upsert to preserve history)
+        memory_store.insert_fact(
+            subject="user",
+            predicate="note",
+            obj=fact,
+            metadata={"source": "manual_memory"},
+        )
             
         return f"Memory updated: {entry.strip()}"

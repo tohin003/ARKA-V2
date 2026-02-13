@@ -1,8 +1,15 @@
+import os
+
 from smolagents import CodeAgent
 from smolagents.monitoring import LogLevel
 from smolagents.memory import ActionStep
 from core.llm import model_router
 from memory.db import memory_client
+from memory.store import memory_store
+from memory.context import context_assembler
+from memory.config import RECALL_ENV, RECALL_DEFAULT
+from core.offline_mode import handle_offline
+from core.intent_router import try_handle as deterministic_try_handle
 from core.session_context import session_context
 from core.verification import adjust_final_answer, build_evidence
 import json
@@ -23,14 +30,25 @@ class ArkaEngine(CodeAgent):
         
         # Import God Mode tools dynamically to avoid circular deps if needed
         from tools.hardware import music_control, set_volume, wifi_control, bluetooth_control
-        from tools.system import system_click, system_type, open_app
-        from tools.vision import get_screen_coordinates
+        from tools.system import system_click, system_click_at, system_type, open_app
+        from tools.vision import get_screen_coordinates, find_text_on_screen, find_and_click_text_on_screen
         from tools.browser import visit_page
         from tools.todo import todo_add, todo_list, todo_complete
         from tools.codebase_graph import generate_graph
         from tools.search import web_search
-        from tools.messaging import send_whatsapp_message
-        from tools.memory_tools import remember_fact
+        from tools.messaging import send_whatsapp_message, send_whatsapp_web_message
+        from tools.memory_tools import (
+            remember_fact,
+            memory_search,
+            memory_list,
+            memory_show,
+            memory_import,
+            memory_purge,
+            memory_forget,
+            memory_lock,
+            memory_export,
+            memory_stats,
+        )
         from tools.mcp_tools import list_mcp_tools, call_mcp_tool
         from tools.goal_tools import set_goal, list_goals, advance_goal, complete_goal
         from tools.chrome_tools import (
@@ -43,14 +61,23 @@ class ArkaEngine(CodeAgent):
         base_tools = tools or []
         god_mode_tools = [
             music_control, set_volume, wifi_control, bluetooth_control,
-            system_click, system_type, open_app,
-            get_screen_coordinates,
+            system_click, system_click_at, system_type, open_app,
+            get_screen_coordinates, find_text_on_screen, find_and_click_text_on_screen,
             visit_page,
             todo_add, todo_list, todo_complete,
             generate_graph,
             web_search,
-            send_whatsapp_message,
+            send_whatsapp_message, send_whatsapp_web_message,
             remember_fact,
+            memory_search,
+            memory_list,
+            memory_show,
+            memory_import,
+            memory_purge,
+            memory_forget,
+            memory_lock,
+            memory_export,
+            memory_stats,
             list_mcp_tools, call_mcp_tool,
             set_goal, list_goals, advance_goal, complete_goal,
             chrome_navigate, chrome_status, chrome_wait_for_connection, chrome_click, chrome_click_at, chrome_focus, chrome_press_key, chrome_wait_for_selector, chrome_type, chrome_scroll, chrome_verify_text,
@@ -82,7 +109,9 @@ class ArkaEngine(CodeAgent):
            - Strategy: The Contact Name is usually at the END. 
            - Example: "Send hello world to Paad" -> contact_name="Paad", message="hello world"
            - Example: "Send I am Arka to Paad" -> contact_name="Paad", message="I am Arka"
-           - ALWAYS call `send_whatsapp_message` for WhatsApp requests.
+           - If user requests **browser/web/whatsapp.com**, use `send_whatsapp_web_message`.
+           - Otherwise use `send_whatsapp_message` (desktop app).
+           - If user names multiple contacts (e.g., "A and B" or "A, B"), send one-by-one.
            
         3. If a command is ambiguous, choose the LITERAL interpretation (Exact String Match) over a generic/semantic one.
         
@@ -99,6 +128,29 @@ class ArkaEngine(CodeAgent):
            - If a chrome_* call returns an error, stop and report it.
            - Do not print raw DOM/text dumps. Keep responses concise.
            - For actions that send/comment/share/DM, use chrome_verify_text to confirm the text appears before claiming success.
+
+        6. NATIVE APP UI RULES:
+           - If the user references visible UI (e.g., "top section", "that song", "left side"), use vision tools.
+           - Use `find_text_on_screen(query, region_hint)` to locate text (e.g., a song name) and confirm it's visible.
+           - Prefer `find_and_click_text_on_screen(query, region_hint)` when the user asks you to select a visible item.
+           - If you have coordinates, use `system_click_at(x, y)` to click.
+           - Otherwise use `get_screen_coordinates(description)` then click.
+           - Apple Music: when searching for a song, check the TOP SECTION first (best match appears there).
+        """
+
+        coding_prompt = """
+        You are ARKA in CODING MODE. You are a senior software engineer that builds high-quality, production-ready software.
+
+        CODING RULES:
+        1. Clarify ambiguous requirements before coding. Ask concise questions if needed.
+        2. Prefer minimal, correct diffs. Do not refactor unrelated code.
+        3. Follow repo conventions and existing patterns. Keep style consistent.
+        4. Use the fastest safe approach: search with rg, edit with apply_patch, avoid manual retyping.
+        5. Add or update tests when behavior changes. Run relevant tests if possible.
+        6. If you cannot run tests, say so and explain the risk.
+        7. Avoid placeholders. Implement the full solution.
+        8. Provide a clear summary and list of tests run.
+        9. If UI context is referenced, use vision tools to inspect the screen before asking clarifying questions.
         """
         
         from core.step_callbacks import summarize_action_step
@@ -122,6 +174,10 @@ class ArkaEngine(CodeAgent):
         from core.memory import MemoryManager
         self.semantic_memory = MemoryManager()
         
+        # Base prompts
+        self._base_prompt_default = system_prompt
+        self._base_prompt_coding = coding_prompt
+
         # Inject Memory into System Prompt
         user_context = self.semantic_memory.get_profile()
         memory_injection = f"""
@@ -147,9 +203,11 @@ These are lessons learned from past sessions. Apply them.
         goals_injection = goal_manager.format_for_prompt()
         
         # Build complete system prompt
+        self.mode = "default"
+        self._base_prompt_suffix = self.prompt_templates.get("system_prompt", "")
         self.prompt_templates["system_prompt"] = (
-            system_prompt + memory_injection + learnings_injection + 
-            goals_injection + self.prompt_templates.get("system_prompt", "")
+            self._base_prompt_default + memory_injection + learnings_injection +
+            goals_injection + self._base_prompt_suffix
         )
         
         # Initialize Context Sensor and Tone Adapter (Phase 6.4, 6.5)
@@ -159,6 +217,48 @@ These are lessons learned from past sessions. Apply them.
         self._tone_adapter = tone_adapter
         
         logger.info("ArkaEngine_Initialized", model=model_router.executor_id, tools=len(agent_tools))
+
+    def _build_system_prompt(self, base_prompt: str) -> str:
+        """Compose the final system prompt with memory, learnings, and goals."""
+        user_context = self.semantic_memory.get_profile()
+        memory_injection = f"""
+
+## 🧠 SEMANTIC MEMORY (USER PROFILE)
+The following is your Long-Term Memory about the User. Use this to personalize every interaction.
+{user_context}
+"""
+
+        learnings = self.reflection.get_learnings()
+        learnings_injection = f"""
+## 📚 OPERATIONAL LEARNINGS
+These are lessons learned from past sessions. Apply them.
+{learnings}
+"""
+
+        goals_injection = self.goal_manager.format_for_prompt()
+        return base_prompt + memory_injection + learnings_injection + goals_injection + self._base_prompt_suffix
+
+    def set_mode(self, mode: str) -> str:
+        """Switch agent mode and update model/system prompt."""
+        mode = (mode or "").strip().lower()
+        if mode not in {"default", "coding"}:
+            return f"Unknown mode: {mode}"
+
+        if self.mode == mode:
+            return f"Mode already set to {mode}."
+
+        self.mode = mode
+        if mode == "coding":
+            if model_router and getattr(model_router, "coding_executor", None):
+                self.model = model_router.coding_executor
+            self.prompt_templates["system_prompt"] = self._build_system_prompt(self._base_prompt_coding)
+            return "Coding mode enabled."
+
+        # default mode
+        if model_router and getattr(model_router, "executor", None):
+            self.model = model_router.executor
+        self.prompt_templates["system_prompt"] = self._build_system_prompt(self._base_prompt_default)
+        return "Default mode enabled."
 
     def _route_task(self, task: str) -> dict:
         """Use router model to resolve intent and ambiguity."""
@@ -285,14 +385,43 @@ These are lessons learned from past sessions. Apply them.
         resolved_task = session_context.resolve_task(task)
         session_context.update_task(resolved_task)
 
+        # Sync mode with session context
+        if session_context.mode and session_context.mode != self.mode:
+            self.set_mode(session_context.mode)
+
+        # Offline mode short-circuit (for local tests)
+        if os.getenv("ARKA_OFFLINE", "0") == "1":
+            memory_client.log_event(session_id, "user_msg", task)
+            response = handle_offline(resolved_task)
+            if response is None:
+                response = "OFFLINE_MODE: unable to handle request."
+            memory_client.log_event(session_id, "agent_result", str(response))
+            try:
+                summary = f"User asked: {resolved_task} | Result: {str(response)[:120]}"
+                memory_store.add_episode(session_id=session_id, summary=summary)
+            except Exception:
+                pass
+            return response
+
+        # Deterministic intent router (bypass LLM when confident)
+        memory_client.log_event(session_id, "user_msg", task)
+        deterministic_result = deterministic_try_handle(resolved_task)
+        if deterministic_result:
+            memory_client.log_event(session_id, "agent_result", str(deterministic_result))
+            try:
+                summary = f"User asked: {resolved_task} | Result: {str(deterministic_result)[:120]}"
+                memory_store.add_episode(session_id=session_id, summary=summary)
+            except Exception:
+                pass
+            return deterministic_result
+
         # Router pass (accuracy > latency)
         route = self._route_task(resolved_task)
         if route.get("requires_clarification") and route.get("clarifying_question"):
             return route["clarifying_question"]
         resolved_task = route.get("resolved_task") or resolved_task
         
-        # 1. Log Task to DB
-        memory_client.log_event(session_id, "user_msg", task)
+        # 1. Log Task to DB (already logged above)
         
         # 2. MistakeGuard: Check if the task itself is malicious (basic check)
         safety_error = mistake_guard.validate_command(task)
@@ -305,7 +434,11 @@ These are lessons learned from past sessions. Apply them.
         context_str = self._context_sensor.format_for_prompt()
         session_str = session_context.format_for_prompt()
         ref_str = session_context.reference_hint(resolved_task)
+        ui_hint = session_context.ui_reference_hint(resolved_task)
         tone_str = self._tone_adapter.detect_tone(resolved_task)
+        memory_str = ""
+        if os.getenv(RECALL_ENV, RECALL_DEFAULT) == "1":
+            memory_str = context_assembler.build(resolved_task)
         router_directive = (
             f"## 🧭 ROUTER DIRECTIVE\n"
             f"- Domain: {route.get('domain','general')}\n"
@@ -313,9 +446,9 @@ These are lessons learned from past sessions. Apply them.
             f"- Requires verification: {route.get('requires_verification', False)}"
         )
         augmented_task = resolved_task
-        if context_str or session_str or ref_str or tone_str:
+        if context_str or session_str or ref_str or ui_hint or tone_str or memory_str:
             augmented_task = (
-                f"{context_str}\n{session_str}\n{ref_str}\n{router_directive}\n{tone_str}\nUSER REQUEST: {resolved_task}"
+                f"{context_str}\n{session_str}\n{ref_str}\n{ui_hint}\n{memory_str}\n{router_directive}\n{tone_str}\nUSER REQUEST: {resolved_task}"
             )
 
         try:
@@ -327,6 +460,12 @@ These are lessons learned from past sessions. Apply them.
             
             # 4. Log Result
             memory_client.log_event(session_id, "agent_result", str(result))
+            # 4b. Store an episode summary (short)
+            try:
+                summary = f"User asked: {resolved_task} | Result: {str(result)[:120]}"
+                memory_store.add_episode(session_id=session_id, summary=summary)
+            except Exception:
+                pass
             
             from observability.logger import log_event
             log_event("agent_run_success", result=str(result)[:100])

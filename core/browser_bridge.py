@@ -68,9 +68,47 @@ class BrowserBridge:
 
     def stop(self):
         """Stop the WebSocket server."""
-        if self._loop:
-            self._loop.call_soon_threadsafe(self._loop.stop)
+        if not self._loop:
+            return
+
+        async def _shutdown():
+            # Close active websocket connection
+            if self.extension_ws:
+                try:
+                    await self.extension_ws.close()
+                except Exception:
+                    pass
+            # Close server
+            if self._server:
+                try:
+                    self._server.close()
+                    await self._server.wait_closed()
+                except Exception:
+                    pass
+            # Cancel any pending futures
+            for fut in list(self._pending.values()):
+                if not fut.done():
+                    fut.cancel()
+            self._pending.clear()
+
+        try:
+            future = asyncio.run_coroutine_threadsafe(_shutdown(), self._loop)
+            future.result(timeout=2)
+        except Exception:
+            pass
+
         self.connected = False
+        self.extension_ws = None
+        self._auth_waiting = False
+        self._auth_url = None
+
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._thread:
+            self._thread.join(timeout=2)
+
+        self._loop = None
+        self._thread = None
+        self._server = None
         logger.info("browser_bridge_stopped")
 
     def _run_server(self):
@@ -84,6 +122,12 @@ class BrowserBridge:
         except Exception as e:
             logger.error("browser_bridge_error", error=str(e))
         finally:
+            try:
+                if self._server:
+                    self._server.close()
+                    self._loop.run_until_complete(self._server.wait_closed())
+            except Exception:
+                pass
             self._loop.close()
 
     async def _start_ws_server(self):

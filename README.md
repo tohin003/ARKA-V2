@@ -72,6 +72,7 @@ ARKA is a hybrid of three paradigms:
 
 **Communication**
 - `send_whatsapp_message` — Vision-verified messaging
+- `send_whatsapp_web_message` — WhatsApp Web (Chrome DOM)
 - `visit_page` — Headless browsing (Playwright)
 
 </td>
@@ -81,6 +82,7 @@ ARKA is a hybrid of three paradigms:
 - `todo_add` / `todo_list` / `todo_complete` — Task manager
 - `set_goal` / `list_goals` / `advance_goal` / `complete_goal` — Multi-step goals
 - `remember_fact` — Save facts to memory
+- `memory_search` / `memory_forget` / `memory_export` / `memory_stats` — Memory tools
 - `web_search` — DuckDuckGo search
 
 **Developer**
@@ -96,6 +98,7 @@ ARKA is a hybrid of three paradigms:
 - `list_mcp_tools` — Discover MCP server tools
 - `call_mcp_tool` — Use any MCP tool
 - `get_screen_coordinates` — Vision AI targeting
+- `find_text_on_screen` / `find_and_click_text_on_screen` — Vision text targeting
 
 </td>
 </tr>
@@ -103,19 +106,20 @@ ARKA is a hybrid of three paradigms:
 
 ### 🧠 Memory System (The Cortex)
 
-ARKA has three layers of persistent memory:
+ARKA has multi-layer persistent memory + a unified store:
 
 ```
 ┌─────────────────────────────────────┐
 │  user_profile.md                    │  ← Who you are (name, preferences)
 │  learnings.md                       │  ← What ARKA has learned 
-│  session_history.db (SQLite)        │  ← Full conversation history
+│  arka_memory.db (SQLite)            │  ← Facts, events, episodes
 └─────────────────────────────────────┘
 ```
 
 - **Semantic Memory**: Facts saved via `remember_fact` → `user_profile.md`
 - **Operational Memory**: Post-session reflections → `learnings.md`  
-- **Session History**: Every event logged to SQLite with timestamps
+- **Unified Memory Store**: Events/facts/episodes in `~/.arka/memory/arka_memory.db`
+- **Auto Distillation**: New facts are extracted and updated automatically
 
 ### 💓 Proactive Heartbeat
 
@@ -457,7 +461,14 @@ ARKA needs these permissions (System Settings → Privacy & Security):
 ❯ /help                             # List all commands
 ❯ /status                           # Git status
 ❯ /commit Fixed the login bug       # Git commit
+❯ /coding on                        # Enable coding mode
+❯ /plan Add a /status command...    # Planning mode
+❯ /memory search "dark mode"        # Memory search
+❯ /mcp status                       # MCP status
+❯ /exit                             # Exit
 ```
+
+Tip: Slash commands support autocomplete and inline usage hints.
 
 ### Planning Mode
 
@@ -481,6 +492,18 @@ ARKA needs these permissions (System Settings → Privacy & Security):
 ❯ Remember that my name is Alex
 ❯ Remember that I prefer dark mode
 ❯ What do you know about me?
+❯ /memory list
+❯ /memory show 12
+❯ /memory search "dark mode" --limit 10
+❯ /memory export
+```
+
+### MCP
+
+```bash
+❯ /mcp connect fs npx -y @modelcontextprotocol/server-filesystem /tmp
+❯ /mcp list
+❯ /mcp status
 ```
 
 ### Exit
@@ -489,6 +512,13 @@ ARKA needs these permissions (System Settings → Privacy & Security):
 ❯ exit                              # Graceful shutdown with reflection
 ❯ quit                              # Same
 ❯ q                                 # Same
+❯ /exit                             # Same
+```
+
+### Interrupt
+
+```bash
+Esc                                # Interrupt current task
 ```
 
 ---

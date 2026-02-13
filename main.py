@@ -19,6 +19,8 @@ from core.skills import skill_registry
 from core.scheduler import heartbeat
 from core.reflection import reflection_engine
 from memory.db import memory_client
+from memory.housekeeping import run_cleanup
+from memory.migrate import run_all_migrations
 from core.session_context import session_context
 import structlog
 
@@ -49,6 +51,14 @@ def main():
 
         tool_count = len(engine.tools)
         ui.print_system(f"Engine ready — {tool_count} tools loaded")
+        skill_registry.bind_planner(planner)
+
+        # Memory migrations + housekeeping
+        try:
+            run_all_migrations()
+            run_cleanup()
+        except Exception:
+            pass
 
         # Start Heartbeat
         heartbeat.start()
@@ -73,6 +83,22 @@ def main():
     # 3. Session tracking
     session_tasks = 0
 
+    def graceful_exit():
+        heartbeat.stop()
+        browser_bridge.stop()
+
+        # Reflect on session if we did work
+        if session_tasks > 0:
+            ui.print_system("Reflecting on session...")
+            try:
+                events = memory_client.get_session_history("latest", limit=20)
+                if events:
+                    reflection_engine.reflect_on_events(events)
+            except Exception:
+                pass
+
+        ui.print_goodbye()
+
     # 4. Main Loop
     while True:
         try:
@@ -87,33 +113,41 @@ def main():
 
             # Exit
             if user_input.lower() in ["exit", "quit", "q"]:
-                heartbeat.stop()
-                browser_bridge.stop()
-                
-                # Reflect on session if we did work
-                if session_tasks > 0:
-                    ui.print_system("Reflecting on session...")
-                    try:
-                        events = memory_client.get_session_history("latest", limit=20)
-                        if events:
-                            reflection_engine.reflect_on_events(events)
-                    except Exception:
-                        pass
-
-                ui.print_goodbye()
+                graceful_exit()
                 break
 
             # A. Slash Commands
             if user_input.startswith("/"):
-                result = skill_registry.execute_skill(user_input)
-                ui.print_tool_result(result)
+                slash_cmd = user_input.strip().split(" ", 1)[0]
+                if slash_cmd == "/plan":
+                    ui.print_thought("Entering planning mode")
+                    with ui.spinner("Planning"):
+                        with ui.esc_interrupt_listener(session_context.request_interrupt):
+                            result = skill_registry.execute_skill(user_input)
+                    if session_context.consume_interrupt():
+                        ui.print_warning("Interrupted.")
+                        continue
+                    ui.print_success(result)
+                    session_tasks += 1
+                else:
+                    result = skill_registry.execute_skill(user_input)
+                    ui.print_tool_result(result)
+
+                if skill_registry.exit_requested:
+                    skill_registry.clear_exit()
+                    graceful_exit()
+                    break
                 continue
 
             # B. Planning Mode
             if user_input.lower().startswith("plan ") or user_input.lower() == "plan":
                 ui.print_thought("Entering planning mode")
                 with ui.spinner("Planning"):
-                    result = planner.start_plan(user_input)
+                    with ui.esc_interrupt_listener(session_context.request_interrupt):
+                        result = planner.start_plan(user_input)
+                if session_context.consume_interrupt():
+                    ui.print_warning("Interrupted.")
+                    continue
                 ui.print_success(result)
                 session_tasks += 1
                 continue
@@ -122,15 +156,18 @@ def main():
             ui.print_thought("Processing")
             
             with ui.spinner("Thinking"):
-                result = engine.run(user_input)
+                with ui.esc_interrupt_listener(session_context.request_interrupt):
+                    result = engine.run(user_input)
 
             ui.print_success(str(result))
             session_tasks += 1
 
         except KeyboardInterrupt:
             print()
-            heartbeat.stop()
-            ui.print_goodbye()
+            if session_context.consume_interrupt():
+                ui.print_warning("Interrupted.")
+                continue
+            graceful_exit()
             sys.exit(0)
         except Exception as e:
             ui.print_error(str(e))

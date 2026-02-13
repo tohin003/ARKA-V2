@@ -37,6 +37,9 @@ def summarize_action_step(step: ActionStep, agent):
     """Emit a compact, user-friendly step summary."""
     if not isinstance(step, ActionStep):
         return
+    if session_context.interrupt_requested:
+        # Raise to abort execution when user requested interrupt (Esc)
+        raise KeyboardInterrupt("User interrupt requested.")
 
     if step.token_usage:
         session_context.update_tokens(

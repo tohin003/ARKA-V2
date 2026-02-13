@@ -2,6 +2,7 @@ from core.llm import model_router
 from smolagents import OpenAIServerModel
 import base64
 import structlog
+import json
 
 logger = structlog.get_logger()
 
@@ -81,6 +82,53 @@ class VisionClient:
             
         except Exception as e:
             logger.error("vision_query_failed", error=str(e))
+            raise e
+
+    def find_text(self, image_path: str, query: str, region_hint: str = "top section") -> dict:
+        """
+        Ask the Vision Model to find text matching query and return coords.
+        Returns dict: {found: bool, text: str, x: int, y: int}
+        """
+        logger.info("vision_text_query_start", query=query, region=region_hint)
+
+        prompt = f"""
+        Analyze this screenshot and locate the best match for the text query: '{query}'.
+        Focus on the region: '{region_hint}'.
+        Return JSON only:
+        {{\"found\": true, \"text\": \"...\", \"x\": 123, \"y\": 456}}
+        If not found, return:
+        {{\"found\": false}}
+        """
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{self.encode_image(image_path)}"
+                        }
+                    }
+                ]
+            }
+        ]
+
+        try:
+            response = self.model.client.chat.completions.create(
+                model=self.model.model_id,
+                messages=messages,
+                max_completion_tokens=800,
+            )
+            content = response.choices[0].message.content.strip()
+            logger.info("vision_text_query_result", content=content)
+            data = json.loads(content)
+            if not isinstance(data, dict):
+                return {"found": False}
+            return data
+        except Exception as e:
+            logger.error("vision_text_query_failed", error=str(e))
             raise e
 
 # Singleton

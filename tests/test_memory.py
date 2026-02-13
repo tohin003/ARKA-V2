@@ -1,3 +1,8 @@
+import os
+
+os.environ.setdefault("ARKA_OFFLINE", "1")
+os.environ.setdefault("ARKA_DISABLE_LANGFUSE", "1")
+
 from core.engine import ArkaEngine
 from core.llm import model_router
 from core.memory import MemoryManager

@@ -1,4 +1,5 @@
 import os
+import re
 from urllib.parse import urlparse
 
 
@@ -15,6 +16,8 @@ class SessionContext:
         self.last_title: str | None = None
         self.last_task: str | None = None
         self.last_tool: str | None = None
+        self.mode: str = "default"
+        self.interrupt_requested: bool = False
 
         self.total_input_tokens: int = 0
         self.total_output_tokens: int = 0
@@ -25,6 +28,18 @@ class SessionContext:
 
     def update_task(self, task: str):
         self.last_task = task
+
+    def update_mode(self, mode: str):
+        self.mode = mode
+
+    def request_interrupt(self):
+        self.interrupt_requested = True
+
+    def consume_interrupt(self) -> bool:
+        if self.interrupt_requested:
+            self.interrupt_requested = False
+            return True
+        return False
 
     def update_browser(self, url: str | None = None, title: str | None = None):
         if url:
@@ -53,6 +68,8 @@ class SessionContext:
 
     def format_for_prompt(self) -> str:
         lines = ["## 🧭 SESSION CONTEXT"]
+        if self.mode:
+            lines.append(f"- Mode: {self.mode}")
         if self.last_site:
             lines.append(f"- Last site: {self.last_site}")
         if self.last_url:
@@ -81,6 +98,18 @@ class SessionContext:
                 "that site",
                 "this site",
                 "the site",
+                "top section",
+                "bottom section",
+                "top of the screen",
+                "bottom of the screen",
+                "left side",
+                "right side",
+                "this song",
+                "that song",
+                "the song",
+                "this track",
+                "that track",
+                "the track",
             ]
         )
         if not ambiguous:
@@ -107,6 +136,18 @@ class SessionContext:
                 "that site",
                 "this site",
                 "the site",
+                "top section",
+                "bottom section",
+                "top of the screen",
+                "bottom of the screen",
+                "left side",
+                "right side",
+                "this song",
+                "that song",
+                "the song",
+                "this track",
+                "that track",
+                "the track",
             ]
         )
         if not ambiguous:
@@ -120,6 +161,50 @@ class SessionContext:
             lines.append(f"- Last URL: {self.last_url}")
         if self.last_app:
             lines.append(f"- Last app: {self.last_app}")
+        return "\n".join(lines)
+
+    def ui_reference_hint(self, task: str) -> str:
+        if not task:
+            return ""
+        lower = task.lower()
+        ui_ref = any(
+            phrase in lower
+            for phrase in [
+                "top section",
+                "bottom section",
+                "top of the screen",
+                "bottom of the screen",
+                "left side",
+                "right side",
+                "this song",
+                "that song",
+                "the song",
+                "this track",
+                "that track",
+                "the track",
+                "look at the top",
+                "look at the bottom",
+                "look at the left",
+                "look at the right",
+            ]
+        )
+        if not ui_ref or not self.last_app:
+            return ""
+        song = None
+        if self.last_task:
+            match = re.search(r"play\s+(.+)$", self.last_task, flags=re.IGNORECASE)
+            if match:
+                song = match.group(1).strip()
+        lines = [
+            "## 🖼️ UI CONTEXT",
+            f"- Active app: {self.last_app}",
+            "- The user references visible UI. Use vision tools to inspect the screen.",
+            "- If searching for text, call `find_text_on_screen(query, region_hint)`.",
+        ]
+        if self.last_app and self.last_app.lower() in {"apple music", "music"}:
+            lines.append("- Apple Music: check TOP SECTION first for best match search result.")
+        if song:
+            lines.append(f"- Last requested song: {song}")
         return "\n".join(lines)
 
 

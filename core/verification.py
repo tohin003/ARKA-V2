@@ -33,6 +33,9 @@ VERIFY_CALLS = [
     "chrome_get_dom",
     "chrome_get_elements",
     "chrome_verify_text",
+    "find_text_on_screen",
+    "find_and_click_text_on_screen",
+    "get_screen_coordinates",
 ]
 
 REQUIRES_STRICT_VERIFY = [
@@ -41,6 +44,17 @@ REQUIRES_STRICT_VERIFY = [
     "dm",
     "share",
     "send",
+]
+
+UI_MARKERS = [
+    "top section",
+    "bottom section",
+    "left side",
+    "right side",
+    "song",
+    "track",
+    "apple music",
+    "music app",
 ]
 
 
@@ -86,13 +100,19 @@ def _is_browser_task(task: str) -> bool:
 
 def _requires_strict(task: str) -> bool:
     text = (task or "").lower()
-    return any(k in text for k in REQUIRES_STRICT_VERIFY)
+    if any(k in text for k in REQUIRES_STRICT_VERIFY):
+        return True
+    if any(k in text for k in UI_MARKERS) and session_context.last_app:
+        return True
+    return False
 
 
 def _has_strict_verification(memory) -> bool:
     for step in _iter_action_steps(memory):
         code = getattr(step, "code_action", None) or ""
         if "chrome_verify_text" in code:
+            return True
+        if "find_text_on_screen" in code or "find_and_click_text_on_screen" in code or "get_screen_coordinates" in code:
             return True
     return False
 

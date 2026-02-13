@@ -4,10 +4,20 @@ import structlog
 
 import structlog
 from tools.vision import get_screen_coordinates
-import pyautogui
 import time
+from core.session_context import session_context
+
+try:
+    import pyautogui  # type: ignore
+    _pyautogui_error = None
+except Exception as e:
+    pyautogui = None  # type: ignore
+    _pyautogui_error = str(e)
 
 logger = structlog.get_logger()
+
+def _mark_music_context():
+    session_context.update_app("Apple Music")
 
 @tool
 def music_control(action: str, song_name: str = None) -> str:
@@ -53,6 +63,7 @@ def music_control(action: str, song_name: str = None) -> str:
             # 1. Try exact match (e.g. "Punkrocker" or "Navior song")
             found, out, err = try_play(song_name)
             if found:
+                _mark_music_context()
                 return f"Playing song: {song_name}"
             
             # 2. Try stripping " song" suffix (e.g. "Navior song" -> "Navior")
@@ -74,10 +85,13 @@ def music_control(action: str, song_name: str = None) -> str:
                     target_desc = f"The play button (triangle icon) overlaid on the artwork for the song '{search_name}'"
                     coords = get_screen_coordinates(target_desc)
                     
+                    if pyautogui is None:
+                        return f"Vision click unavailable (pyautogui error: {_pyautogui_error})"
                     if "Error" not in coords:
                         x, y = map(int, coords.split(","))
                         pyautogui.moveTo(x, y, duration=0.5)
                         pyautogui.click()
+                        _mark_music_context()
                         return f"Playing song '{search_name}' (Global Search via Vision Click)."
                     
                     # Strategy B: Double Click the Artwork (if play button hidden)
@@ -85,10 +99,13 @@ def music_control(action: str, song_name: str = None) -> str:
                     target_desc_b = f"The album artwork for the song '{search_name}'"
                     coords_b = get_screen_coordinates(target_desc_b)
                     
+                    if pyautogui is None:
+                        return f"Vision click unavailable (pyautogui error: {_pyautogui_error})"
                     if "Error" not in coords_b:
                         x, y = map(int, coords_b.split(","))
                         pyautogui.moveTo(x, y, duration=0.5)
                         pyautogui.doubleClick()
+                        _mark_music_context()
                         return f"Playing song '{search_name}' (Global Search via Artwork Double-Click)."
                         
                     logger.warning("vision_fallback_failed", reason="coords_not_found", target=target_desc_b)
@@ -96,6 +113,7 @@ def music_control(action: str, song_name: str = None) -> str:
                 except Exception as ve:
                     logger.warning("vision_fallback_failed", error=str(ve))
 
+                _mark_music_context()
                 return f"Song '{search_name}' not in Library. Global search opened. Please click play manually if not started."
             except Exception as e2:
                 return f"Music Error: Song '{song_name}' not found locally (even after fuzzy search) and fallback failed: {e2}"
@@ -105,6 +123,7 @@ def music_control(action: str, song_name: str = None) -> str:
             res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
             if res.returncode != 0:
                 return f"Music Error: {res.stderr}"
+            _mark_music_context()
             return f"Music: {action}"
             
     except Exception as e:

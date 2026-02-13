@@ -5,6 +5,10 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 import structlog
 
+from memory.config import AUTO_UPDATE_ENV, AUTO_UPDATE_DEFAULT
+from memory.distiller import distill_user_text
+from memory.store import memory_store
+
 logger = structlog.get_logger()
 
 DB_PATH = os.path.expanduser("~/.arka/memory/session_history.db")
@@ -61,6 +65,15 @@ class MemoryClient:
             
             conn.commit()
             conn.close()
+
+            # Also write to unified MemoryStore (best-effort)
+            event_id = memory_store.add_event(session_id, type, content, metadata)
+            if event_id and type == "user_msg":
+                if os.getenv(AUTO_UPDATE_ENV, AUTO_UPDATE_DEFAULT) == "1":
+                    try:
+                        distill_user_text(memory_store, event_id, content)
+                    except Exception as e:
+                        logger.warning("memory_auto_distill_failed", error=str(e))
         except Exception as e:
             logger.error("db_log_failed", error=str(e))
 

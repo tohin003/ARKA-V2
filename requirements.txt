@@ -4,6 +4,7 @@ anthropic
 structlog
 langfuse
 rich
+prompt_toolkit
 pyautogui
 playwright
 pillow

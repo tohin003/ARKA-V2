@@ -1,15 +1,22 @@
 from smolagents import tool
 from tools.vision import get_screen_coordinates
-import pyautogui
 import subprocess
 import structlog
 import time
 from core.session_context import session_context
 
+try:
+    import pyautogui  # type: ignore
+    _pyautogui_error = None
+except Exception as e:
+    pyautogui = None  # type: ignore
+    _pyautogui_error = str(e)
+
 logger = structlog.get_logger()
 
 # Safety Pre-check
-pyautogui.FAILSAFE = True
+if pyautogui is not None:
+    pyautogui.FAILSAFE = True
 
 @tool
 def system_click(element_description: str) -> str:
@@ -30,6 +37,8 @@ def system_click(element_description: str) -> str:
         x, y = map(int, coords_str.split(","))
         
         # 2. Click
+        if pyautogui is None:
+            return f"Click Error: pyautogui unavailable ({_pyautogui_error})"
         # Move smooth to look natural and give user time to abort (Move mouse to corner)
         pyautogui.moveTo(x, y, duration=0.5) 
         pyautogui.click()
@@ -47,10 +56,34 @@ def system_type(text: str) -> str:
         text: The text to type.
     """
     try:
+        if pyautogui is None:
+            return f"Type Error: pyautogui unavailable ({_pyautogui_error})"
         pyautogui.write(text, interval=0.05) # Slower typing to prevent skipped keys
         return f"Typed: {text}"
     except Exception as e:
         return f"Type Error: {str(e)}"
+
+@tool
+def system_click_at(x: int, y: int, double: bool = False) -> str:
+    """
+    Click at screen coordinates.
+
+    Args:
+        x: X coordinate.
+        y: Y coordinate.
+        double: Whether to double-click.
+    """
+    try:
+        if pyautogui is None:
+            return f"Click Error: pyautogui unavailable ({_pyautogui_error})"
+        pyautogui.moveTo(x, y, duration=0.2)
+        if double:
+            pyautogui.doubleClick()
+        else:
+            pyautogui.click()
+        return f"Clicked at ({x}, {y})"
+    except Exception as e:
+        return f"Click Error: {str(e)}"
 
 @tool
 def open_app(app_name: str, url: str = None) -> str:

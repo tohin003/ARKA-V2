@@ -1,7 +1,12 @@
-from core.engine import ArkaEngine
-from core.memory import MemoryManager
+import os
 import time
 import sys
+
+os.environ.setdefault("ARKA_OFFLINE", "1")
+os.environ.setdefault("ARKA_DISABLE_LANGFUSE", "1")
+
+from core.engine import ArkaEngine
+from core.memory import MemoryManager
 
 def colored_print(msg, color="white"):
     colors = {
